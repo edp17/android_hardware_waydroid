@@ -34,7 +34,6 @@ cc_binary {
         "libhardware",
         "libhidlbase",
         "liblog",
-        "libhwbinder",
         "libutils",
         "vendor.waydroid.task@1.0",
     ],
