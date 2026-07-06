@@ -422,9 +422,27 @@ xdg_toplevel_handle_close(void *data, struct xdg_toplevel *)
     destroy_window(window, true);
 }
 
+static void xdg_toplevel_handle_configure_bounds(void*,
+                                                struct xdg_toplevel*,
+                                                int32_t,
+                                                int32_t) {
+    // Newer stable xdg-shell versions may send this event. The current
+    // Waydroid HWC code does not need to act on it.
+}
+
+static void xdg_toplevel_handle_wm_capabilities(void*,
+                                                struct xdg_toplevel*,
+                                                struct wl_array*) {
+    // Newer stable xdg-shell versions may send this event. The current
+    // Waydroid HWC code does not need to act on it.
+}
+
+
 static const struct xdg_toplevel_listener xdg_toplevel_listener = {
     xdg_toplevel_handle_configure,
     xdg_toplevel_handle_close,
+    xdg_toplevel_handle_configure_bounds,
+    xdg_toplevel_handle_wm_capabilities,
 };
 
 void
