@@ -33,7 +33,6 @@ cc_binary {
         "libcutils",
         "libhardware",
         "libhidlbase",
-        "libhidltransport",
         "liblog",
         "libhwbinder",
         "libutils",
