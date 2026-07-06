@@ -354,7 +354,8 @@ static int apply_hwc_layer_to_surface_context(waydroid_hwc_composer_device_1 *pd
     // Scaling can only be supported correctly with wp_viewport
     if (surface_context.viewport) {
         surface_context.set_crop(rect_apply_transform(hwc_layer->sourceCropf, hwc_layer->transform));
-        surface_context.set_display_frame(hwc_layer->displayFrame, pdev->display->scale);
+        surface_context.set_display_frame(hwc_layer->displayFrame, pdev->display->scale,
+                                      pdev->display->outputScaleX, pdev->display->outputScaleY);
     } else {
         surface_context.set_buffer_scale(pdev->display->scale);
     }
@@ -396,16 +397,16 @@ int apply_hwc_layer_to_window(waydroid_hwc_composer_device_1 *pdev, hwc_layer_1 
     }
 
     window_layer.set_position(
-        floor(hwc_layer->displayFrame.left / pdev->display->scale),
-        floor(hwc_layer->displayFrame.top / pdev->display->scale)
+        floor((hwc_layer->displayFrame.left / pdev->display->scale) * pdev->display->outputScaleX),
+        floor((hwc_layer->displayFrame.top / pdev->display->scale) * pdev->display->outputScaleY)
     );
 
     if (window->input_region) {
         wl_region_add(window->input_region,
-                      -WINDOW_DECORATION_OUTSET + floor(hwc_layer->displayFrame.left / pdev->display->scale),
-                      -WINDOW_DECORATION_OUTSET + floor(hwc_layer->displayFrame.top / pdev->display->scale),
-                      2*WINDOW_DECORATION_OUTSET + ceil((hwc_layer->displayFrame.right - hwc_layer->displayFrame.left) / pdev->display->scale),
-                      2*WINDOW_DECORATION_OUTSET + ceil((hwc_layer->displayFrame.bottom - hwc_layer->displayFrame.top) / pdev->display->scale));
+                      -WINDOW_DECORATION_OUTSET + floor((hwc_layer->displayFrame.left / pdev->display->scale) * pdev->display->outputScaleX),
+                      -WINDOW_DECORATION_OUTSET + floor((hwc_layer->displayFrame.top / pdev->display->scale) * pdev->display->outputScaleY),
+                      2*WINDOW_DECORATION_OUTSET + ceil(((hwc_layer->displayFrame.right - hwc_layer->displayFrame.left) / pdev->display->scale) * pdev->display->outputScaleX),
+                      2*WINDOW_DECORATION_OUTSET + ceil(((hwc_layer->displayFrame.bottom - hwc_layer->displayFrame.top) / pdev->display->scale) * pdev->display->outputScaleY));
     }
 
     pdev->display->layers[window_layer.surface] = {

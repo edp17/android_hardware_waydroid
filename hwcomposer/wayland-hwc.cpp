@@ -139,20 +139,45 @@ void choose_width_height(struct display* display, int32_t hint_width, int32_t hi
     char property[PROPERTY_VALUE_MAX];
     int width = hint_width;
     int height = hint_height;
+    bool width_overridden = false;
+    bool height_overridden = false;
 
     // Ignore hint it requested
     if (property_get("persist.waydroid.width", property, nullptr) > 0) {
-        display->isMaximized = false;
         width = atoi(property);
+        width_overridden = true;
     }
 
     if (property_get("persist.waydroid.height", property, nullptr) > 0) {
-        display->isMaximized = false;
         height = atoi(property);
+        height_overridden = true;
     }
 
     display->width = width;
     display->height = height;
+
+    display->scaleToFullscreen =
+            property_get_bool("persist.waydroid.scale_to_fullscreen", false)
+            && width_overridden
+            && height_overridden
+            && display->req_width > 0
+            && display->req_height > 0
+            && width > 0
+            && height > 0;
+
+    display->outputScaleX = 1.0;
+    display->outputScaleY = 1.0;
+
+    if (display->scaleToFullscreen) {
+        display->isMaximized = true;
+        display->outputScaleX = static_cast<double>(display->req_width) / static_cast<double>(width);
+        display->outputScaleY = static_cast<double>(display->req_height) / static_cast<double>(height);
+        ALOGI("Waydroid lowres fullscreen: render=%dx%d window=%dx%d scale=%fx%f",
+              width, height, display->req_width, display->req_height,
+              display->outputScaleX, display->outputScaleY);
+    } else if (width_overridden || height_overridden) {
+        display->isMaximized = false;
+    }
 }
 
 void
@@ -321,11 +346,12 @@ void surface_context::set_crop(hwc_frect_t crop) {
                            wl_fixed_from_double(height));
 }
 
-void surface_context::set_display_frame(hwc_rect_t rect, double scale) {
+void surface_context::set_display_frame(hwc_rect_t rect, double scale,
+                                        double output_scale_x, double output_scale_y) {
     assert(viewport);
 
-    int width = static_cast<int>(ceil((rect.right - rect.left) / scale));
-    int height = static_cast<int>(ceil((rect.bottom - rect.top) / scale));
+    int width = static_cast<int>(ceil(((rect.right - rect.left) / scale) * output_scale_x));
+    int height = static_cast<int>(ceil(((rect.bottom - rect.top) / scale) * output_scale_y));
 
     wp_viewport_set_destination(viewport,
                                 std::max(1, width),
@@ -540,8 +566,11 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
             window->set_maximize(false);
     }
 
+    const int window_width = display->scaleToFullscreen ? display->req_width : display->width;
+    const int window_height = display->scaleToFullscreen ? display->req_height : display->height;
+
     if (display->wm_base)
-        xdg_surface_set_window_geometry(window->xdg_surface, 0, 0, display->width, display->height);
+        xdg_surface_set_window_geometry(window->xdg_surface, 0, 0, window_width, window_height);
 
     struct wl_region *region = wl_compositor_create_region(display->compositor);
     if (color.a == 0) {
@@ -552,7 +581,7 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
             wl_region_destroy(region);
     }
     if (color.a == 255) {
-        wl_region_add(region, 0, 0, display->width, display->height);
+        wl_region_add(region, 0, 0, window_width, window_height);
         wl_surface_set_opaque_region(window->surface, region);
         wl_region_destroy(region);
     }
@@ -583,7 +612,7 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
     wl_surface_attach(window->surface, window->bg_buffer, 0, 0);
     wl_surface_damage(window->surface, 0, 0, INT32_MAX, INT32_MAX);
     wp_viewport_set_source(window->viewport, wl_fixed_from_int(0), wl_fixed_from_int(0), wl_fixed_from_int(1), wl_fixed_from_int(1));
-    wp_viewport_set_destination(window->viewport, display->width, display->height);
+    wp_viewport_set_destination(window->viewport, window_width, window_height);
     wl_surface_commit(window->surface);
 
     return window;

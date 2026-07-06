@@ -165,7 +165,9 @@ struct surface_context {
     // Requires the transformed rectangle
     void set_crop(hwc_frect_t crop);
     // TODO: This should not require scale. Scaling handling is broken
-    void set_display_frame(hwc_rect_t rect, double scale);
+    void set_display_frame(hwc_rect_t rect, double scale,
+                           double output_scale_x = 1.0,
+                           double output_scale_y = 1.0);
 };
 
 struct window {
@@ -384,6 +386,12 @@ struct display {
     bool supports_cursor_hw_buffer;
 
     bool isMaximized;
+
+    bool scaleToFullscreen = false;
+
+    double outputScaleX = 1.0;
+
+    double outputScaleY = 1.0;
     sp<IWaydroidTask> task;
 };
 
