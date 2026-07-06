@@ -25,7 +25,6 @@ cc_binary {
         "libhardware",
         "libhidlbase",
         "liblog",
-        "libhwbinder",
         "libutils",
         "libcutils",
         "android.hardware.sensors@1.0",

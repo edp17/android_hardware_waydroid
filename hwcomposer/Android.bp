@@ -24,7 +24,6 @@ cc_library_shared {
         "libcutils",
         "libhardware",
         "libhidlbase",
-        "libhwbinder",
         "libsync",
         "libui",
         "libdrm",

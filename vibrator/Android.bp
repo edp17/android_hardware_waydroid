@@ -23,7 +23,6 @@ cc_binary {
         "libbase",
         "libhidlbase",
         "liblog",
-        "libhwbinder",
         "libutils",
         "libhardware",
         "android.hardware.vibrator@1.0",
