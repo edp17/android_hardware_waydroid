@@ -66,8 +66,16 @@ cc_library_shared {
         "-Wall",
         "-Werror",
     ],
-    generated_sources: ["wayland_android_client_protocol_sources"],
-    generated_headers: ["wayland_android_client_protocol_headers"],
+    generated_sources: [
+        "wayland_android_client_protocol_sources",
+        "waydroid_xdg_shell_client_protocol_sources",
+        "waydroid_fractional_scale_client_protocol_sources",
+    ],
+    generated_headers: [
+        "wayland_android_client_protocol_headers",
+        "waydroid_xdg_shell_client_protocol_headers",
+        "waydroid_fractional_scale_client_protocol_headers",
+    ],
 }
 
 // Generate wayland-android protocol source file
