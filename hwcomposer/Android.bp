@@ -94,3 +94,41 @@ genrule {
     cmd: "$(location wayland_scanner) client-header < $(in) > $(out)",
     out: ["wayland-android-client-protocol.h"],
 }
+
+// Generate stable xdg-shell protocol source/header.
+// The Android 11 external/wayland-protocols tree used here only exports
+// xdg-shell unstable v5/v6 headers, while hwcomposer uses stable xdg_wm_base.
+genrule {
+    name: "waydroid_xdg_shell_client_protocol_sources",
+    srcs: ["protocols/xdg-shell.xml"],
+    tools: ["wayland_scanner"],
+    cmd: "$(location wayland_scanner) code < $(in) > $(out)",
+    out: ["xdg-shell-client-protocol.c"],
+}
+
+genrule {
+    name: "waydroid_xdg_shell_client_protocol_headers",
+    srcs: ["protocols/xdg-shell.xml"],
+    tools: ["wayland_scanner"],
+    cmd: "$(location wayland_scanner) client-header < $(in) > $(out)",
+    out: ["xdg-shell-client-protocol.h"],
+}
+
+// Generate fractional-scale protocol source/header.
+// hwcomposer includes fractional-scale-v1-client-protocol.h directly.
+genrule {
+    name: "waydroid_fractional_scale_client_protocol_sources",
+    srcs: ["protocols/fractional-scale-v1.xml"],
+    tools: ["wayland_scanner"],
+    cmd: "$(location wayland_scanner) code < $(in) > $(out)",
+    out: ["fractional-scale-v1-client-protocol.c"],
+}
+
+genrule {
+    name: "waydroid_fractional_scale_client_protocol_headers",
+    srcs: ["protocols/fractional-scale-v1.xml"],
+    tools: ["wayland_scanner"],
+    cmd: "$(location wayland_scanner) client-header < $(in) > $(out)",
+    out: ["fractional-scale-v1-client-protocol.h"],
+}
+
