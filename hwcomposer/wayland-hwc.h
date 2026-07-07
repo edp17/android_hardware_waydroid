@@ -392,6 +392,10 @@ struct display {
     double outputScaleX = 1.0;
 
     double outputScaleY = 1.0;
+
+    int outputWidth = 0;
+
+    int outputHeight = 0;
     sp<IWaydroidTask> task;
 };
 
