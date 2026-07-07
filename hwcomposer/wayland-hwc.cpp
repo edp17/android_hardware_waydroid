@@ -175,19 +175,36 @@ void choose_width_height(struct display* display, int32_t hint_width, int32_t hi
         target_height = display->full_height;
     }
 
-    display->scaleToFullscreen =
-            fullscreen_requested
-            && width_overridden
-            && height_overridden
-            && target_width > width
+    const bool explicit_target =
+            target_width > width
             && target_height > height
             && width > 0
             && height > 0;
+
+    display->scaleToFullscreen =
+            (fullscreen_requested || explicit_target)
+            && width_overridden
+            && height_overridden
+            && explicit_target;
 
     display->outputScaleX = 1.0;
     display->outputScaleY = 1.0;
     display->outputWidth = display->width;
     display->outputHeight = display->height;
+
+    char diag[PROPERTY_VALUE_MAX];
+
+    snprintf(diag, sizeof(diag), "%dx%d", width, height);
+    property_set("waydroid.lr.render", diag);
+
+    snprintf(diag, sizeof(diag), "%dx%d", target_width, target_height);
+    property_set("waydroid.lr.target", diag);
+
+    snprintf(diag, sizeof(diag), "%d", fullscreen_requested ? 1 : 0);
+    property_set("waydroid.lr.requested", diag);
+
+    snprintf(diag, sizeof(diag), "%d", explicit_target ? 1 : 0);
+    property_set("waydroid.lr.explicit", diag);
 
     if (display->scaleToFullscreen) {
         display->isMaximized = true;
@@ -195,15 +212,26 @@ void choose_width_height(struct display* display, int32_t hint_width, int32_t hi
         display->outputHeight = target_height;
         display->outputScaleX = static_cast<double>(target_width) / static_cast<double>(width);
         display->outputScaleY = static_cast<double>(target_height) / static_cast<double>(height);
-        ALOGI("Waydroid lowres fullscreen: render=%dx%d window=%dx%d req=%dx%d full=%dx%d scale=%fx%f",
+
+        property_set("waydroid.lr.active", "1");
+
+        snprintf(diag, sizeof(diag), "%fx%f",
+                 display->outputScaleX, display->outputScaleY);
+        property_set("waydroid.lr.scale", diag);
+
+        ALOGE("Waydroid lowres fullscreen: render=%dx%d window=%dx%d req=%dx%d full=%dx%d scale=%fx%f",
               width, height, target_width, target_height,
               display->req_width, display->req_height,
               display->full_width, display->full_height,
               display->outputScaleX, display->outputScaleY);
     } else if (width_overridden || height_overridden) {
         display->isMaximized = false;
-        ALOGI("Waydroid lowres fullscreen disabled: requested=%d render=%dx%d target=%dx%d req=%dx%d full=%dx%d",
+        property_set("waydroid.lr.active", "0");
+        property_set("waydroid.lr.scale", "1.0x1.0");
+
+        ALOGE("Waydroid lowres fullscreen disabled: requested=%d explicit=%d render=%dx%d target=%dx%d req=%dx%d full=%dx%d",
               fullscreen_requested,
+              explicit_target,
               width, height,
               target_width, target_height,
               display->req_width, display->req_height,
@@ -613,7 +641,9 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
             display->req_width = display->full_width / display->scale;
 
         finished_calibrating(display);
-        if (!display->isMaximized)
+        if (display->scaleToFullscreen)
+            window->set_maximize(true);
+        else if (!display->isMaximized)
             window->set_maximize(false);
     }
 
