@@ -156,8 +156,12 @@ void choose_width_height(struct display* display, int32_t hint_width, int32_t hi
     display->width = width;
     display->height = height;
 
+    const bool fullscreen_requested =
+            property_get_bool("persist.waydroid.fullscreen", false)
+            || property_get_bool("persist.waydroid.scale_to_fullscreen", false);
+
     display->scaleToFullscreen =
-            property_get_bool("persist.waydroid.scale_to_fullscreen", false)
+            fullscreen_requested
             && width_overridden
             && height_overridden
             && display->req_width > 0
