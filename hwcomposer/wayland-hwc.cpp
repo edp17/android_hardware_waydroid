@@ -466,14 +466,32 @@ void window::reset_per_set_state() {
 void window::set_maximize(bool enabled) {
     if (xdg_toplevel) {
         if (enabled) {
-            xdg_toplevel_set_maximized(xdg_toplevel);
+            if (display->scaleToFullscreen) {
+                ALOGE("Waydroid lowres fullscreen v8 xdg fullscreen");
+                xdg_toplevel_set_fullscreen(xdg_toplevel, display->output);
+            } else {
+                xdg_toplevel_set_maximized(xdg_toplevel);
+            }
         } else {
-            xdg_toplevel_unset_maximized(xdg_toplevel);
+            if (display->scaleToFullscreen) {
+                xdg_toplevel_unset_fullscreen(xdg_toplevel);
+            } else {
+                xdg_toplevel_unset_maximized(xdg_toplevel);
+            }
         }
     } else {
         assert(shell_surface);
         if (enabled) {
-            wl_shell_surface_set_maximized(shell_surface, display->output);
+            if (display->scaleToFullscreen) {
+                ALOGE("Waydroid lowres fullscreen v8 wl_shell fullscreen");
+                wl_shell_surface_set_fullscreen(
+                        shell_surface,
+                        WL_SHELL_SURFACE_FULLSCREEN_METHOD_DEFAULT,
+                        0,
+                        display->output);
+            } else {
+                wl_shell_surface_set_maximized(shell_surface, display->output);
+            }
         } else {
             ALOGW("wl_shell_surface: does not support un-maximizing");
         }
