@@ -705,8 +705,73 @@ window::create(struct display *display, bool use_subsurfaces, std::string appID,
         wl_subsurface_set_desync(window->layers[0].subsurface);
     }
 
+    uint32_t pixel = color.a << 24 | color.r << 16 | color.g << 8 | color.b;
+
+    if (display->scaleToFullscreen) {
+        /*
+         * Sailfish lipstick/wl_shell appears to size the toplevel from the
+         * actual attached parent buffer, not from a 1x1 parent buffer enlarged
+         * only through wp_viewport.  For low-res fullscreen mode, attach a real
+         * output-sized parent buffer so the scaled Android content layer is not
+         * clipped to the low-res 720x1280 window bounds.
+         *
+         * The mapping is intentionally kept alive for the wl_buffer lifetime,
+         * matching wl_shm requirements. This is one fullscreen background buffer
+         * for the Waydroid toplevel window.
+         */
+        wl_shm_pool_destroy(pool);
+
+        int bg_stride = window_width * 4;
+        int bg_size = bg_stride * window_height;
+        int bg_fd = syscall(SYS_memfd_create, "waydroid-fullscreen-bg", 0);
+        if (bg_fd < 0 || ftruncate(bg_fd, bg_size) != 0) {
+            ALOGE("Waydroid fullscreen bg: failed to allocate %dx%d buffer: %s",
+                  window_width, window_height, strerror(errno));
+            if (bg_fd >= 0)
+                close(bg_fd);
+            return window;
+        }
+
+        void *bg_data = mmap(NULL, bg_size, PROT_READ | PROT_WRITE, MAP_SHARED, bg_fd, 0);
+        if (bg_data == MAP_FAILED) {
+            ALOGE("Waydroid fullscreen bg: mmap failed for %dx%d buffer: %s",
+                  window_width, window_height, strerror(errno));
+            close(bg_fd);
+            return window;
+        }
+
+        uint32_t *bg_pixels = static_cast<uint32_t *>(bg_data);
+        for (int i = 0; i < window_width * window_height; ++i)
+            bg_pixels[i] = pixel;
+
+        struct wl_shm_pool *bg_pool = wl_shm_create_pool(display->shm, bg_fd, bg_size);
+        close(bg_fd);
+
+        window->bg_buffer = wl_shm_pool_create_buffer(
+                bg_pool, 0, window_width, window_height, bg_stride, WL_SHM_FORMAT_ARGB8888);
+        wl_shm_pool_destroy(bg_pool);
+
+        wl_surface_attach(window->surface, window->bg_buffer, 0, 0);
+        wl_surface_damage(window->surface, 0, 0, window_width, window_height);
+
+        if (window->viewport) {
+            wp_viewport_set_source(window->viewport,
+                                   wl_fixed_from_int(0),
+                                   wl_fixed_from_int(0),
+                                   wl_fixed_from_int(window_width),
+                                   wl_fixed_from_int(window_height));
+            wp_viewport_set_destination(window->viewport, window_width, window_height);
+        }
+
+        ALOGE("Waydroid lowres fullscreen v7 parent bg: %dx%d",
+              window_width, window_height);
+
+        wl_surface_commit(window->surface);
+        return window;
+    }
+
     uint32_t *buf = (uint32_t*)shm_data;
-    *buf = color.a << 24 | color.r << 16 | color.g << 8 | color.b;
+    *buf = pixel;
     window->bg_buffer = wl_shm_pool_create_buffer(pool, 0, 1, 1, 4, WL_SHM_FORMAT_ARGB8888);
     wl_shm_pool_destroy(pool);
 
