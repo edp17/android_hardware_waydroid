@@ -454,30 +454,24 @@ void surface_context::set_display_frame(hwc_rect_t rect, double scale,
     int height = static_cast<int>(ceil(base_height * output_scale_y));
 
     /*
-     * Hammerhead/Sailfish diagnostic probe, hard-enabled.
+     * Hammerhead/Sailfish diagnostic probe, unconditional.
      *
-     * The normal low-res fullscreen path should already turn a 720x1280
-     * framebuffer target into a 1080x1920 viewport destination. Since that
-     * has no visible effect, hard-test whether the active content surface viewport
-     * is effective at all by forcing an unmistakable smaller destination.
+     * v10b did not visually change the 720x1280 top-left UI. This v11 probe
+     * removes the base-size and output-scale conditions entirely. Any call to
+     * set_display_frame() will request a tiny 360x640 viewport destination.
      *
-     * If this works, the Android UI should shrink to roughly 360x640.
-     * If the UI remains the same 720x1280 top-left size, the active path is
-     * not honouring wp_viewport_set_destination().
+     * If the visible Android UI still does not shrink, the active visible path
+     * is not using this viewport destination path, or the compositor ignores it
+     * for this buffer/surface path.
      */
-    if (base_width == 720
-            && base_height == 1280
-            && output_scale_x > 1.0
-            && output_scale_y > 1.0) {
-        width = 360;
-        height = 640;
+    width = 360;
+    height = 640;
 
-        static bool logged = false;
-        if (!logged) {
-            ALOGE("Waydroid lowres fullscreen v10b hard viewport probe: base=%dx%d dest=%dx%d scale=%fx%f",
-                  base_width, base_height, width, height, output_scale_x, output_scale_y);
-            logged = true;
-        }
+    static bool logged = false;
+    if (!logged) {
+        ALOGE("Waydroid lowres fullscreen v11 unconditional viewport clamp: base=%dx%d dest=%dx%d scale=%fx%f",
+              base_width, base_height, width, height, output_scale_x, output_scale_y);
+        logged = true;
     }
 
     wp_viewport_set_destination(viewport,
