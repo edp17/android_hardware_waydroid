@@ -454,26 +454,27 @@ void surface_context::set_display_frame(hwc_rect_t rect, double scale,
     int height = static_cast<int>(ceil(base_height * output_scale_y));
 
     /*
-     * Hammerhead/Sailfish diagnostic probe.
+     * Hammerhead/Sailfish diagnostic probe, hard-enabled.
      *
      * The normal low-res fullscreen path should already turn a 720x1280
      * framebuffer target into a 1080x1920 viewport destination. Since that
-     * has no visible effect, test whether the active content surface viewport
+     * has no visible effect, hard-test whether the active content surface viewport
      * is effective at all by forcing an unmistakable smaller destination.
      *
      * If this works, the Android UI should shrink to roughly 360x640.
      * If the UI remains the same 720x1280 top-left size, the active path is
      * not honouring wp_viewport_set_destination().
      */
-    if (property_get_bool("persist.waydroid.viewport_probe", false)
-            && base_width == 720
-            && base_height == 1280) {
+    if (base_width == 720
+            && base_height == 1280
+            && output_scale_x > 1.0
+            && output_scale_y > 1.0) {
         width = 360;
         height = 640;
 
         static bool logged = false;
         if (!logged) {
-            ALOGE("Waydroid lowres fullscreen v10 viewport probe: base=%dx%d dest=%dx%d scale=%fx%f",
+            ALOGE("Waydroid lowres fullscreen v10b hard viewport probe: base=%dx%d dest=%dx%d scale=%fx%f",
                   base_width, base_height, width, height, output_scale_x, output_scale_y);
             logged = true;
         }
