@@ -421,10 +421,23 @@ void surface_context::set_buffer_transform(BufferTransform transform) {
 void surface_context::set_buffer_scale(double d_scale) {
     assert(!viewport);
 
-    // Usually with no viewporter the scale is guaranteed to be integer
-    // When supports_cursor_viewport == false, this might not be the case
-    // thus use ceil anyway
-    int32_t scale = static_cast<int32_t>(ceil(d_scale));
+    /*
+     * Hammerhead/Sailfish diagnostic probe.
+     *
+     * v11 proved that forcing wp_viewport_set_destination() does not visibly
+     * affect the Android UI. Test the fallback no-viewport path by forcing
+     * wl_surface_set_buffer_scale(..., 2). If the visible Android surface uses
+     * this branch, the 720x1280 UI should shrink to roughly 360x640.
+     */
+    int32_t scale = 2;
+
+    static bool logged = false;
+    if (!logged) {
+        ALOGE("Waydroid lowres fullscreen v12 buffer-scale probe: requested=%f forced=%d",
+              d_scale, scale);
+        logged = true;
+    }
+
     wl_surface_set_buffer_scale(surface, scale);
 }
 
