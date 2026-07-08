@@ -104,14 +104,27 @@ namespace {
     buffer *get_wl_buffer(waydroid_hwc_composer_device_1 *pdev, hwc_layer_1_t *layer, size_t pos) {
         const auto& gralloc_handler = pdev->gralloc_handler;
         auto metadata = gralloc_handler.get_buffer_metadata(pdev->display, layer, pos);
+
+        const bool force_shm_framebuffer =
+                property_get_bool("persist.waydroid.force_shm_fb", false)
+                && pdev->display->scaleToFullscreen
+                && layer->compositionType == HWC_FRAMEBUFFER_TARGET
+                && !(layer->flags & HWC_IS_CURSOR_LAYER);
+
         buffer *buf = find_cached_buffer(pdev, metadata, layer->handle);
 
         if (!buf) {
             std::unique_ptr<buffer> result;
-            if (layer->flags & HWC_IS_CURSOR_LAYER)
+            if (layer->flags & HWC_IS_CURSOR_LAYER) {
                 result = pdev->display->cursor_handler->create_buffer(pdev, metadata, layer);
-            else
+            } else if (force_shm_framebuffer) {
+                ALOGE("Waydroid lowres fullscreen v9 shm framebuffer create: %ux%u stride=%u format=%u",
+                      metadata.width, metadata.height, metadata.pixel_stride, metadata.format);
+                property_set("waydroid.lr.v9_shm_fb", "create");
+                result = create_shm_wl_buffer(pdev->display, metadata, layer->handle);
+            } else {
                 result = gralloc_handler.create_buffer(pdev->display, metadata, layer->handle);
+            }
             if (!result) {
                 ALOGE("failed to create a wayland buffer");
                 return nullptr;
@@ -121,8 +134,15 @@ namespace {
             buf = emplace_result.first->second.get();
         }
 
-        if (buf->isShm)
+        if (buf->isShm) {
+            if (force_shm_framebuffer) {
+                ALOGE("Waydroid lowres fullscreen v9 shm framebuffer update: %ux%u stride=%u format=%u",
+                      buf->metadata.width, buf->metadata.height,
+                      buf->metadata.pixel_stride, buf->metadata.format);
+                property_set("waydroid.lr.v9_shm_fb", "update");
+            }
             gralloc_handler.update_shm_buffer(pdev->display, buf);
+        }
         return buf;
     }
 
