@@ -175,6 +175,26 @@ void choose_width_height(struct display* display, int32_t hint_width, int32_t hi
         target_height = display->full_height;
     }
 
+    /*
+     * Hammerhead/Sailfish low-res fullscreen fallback.
+     *
+     * On this Sailfish/Waydroid stack, Android getprop sees the newer
+     * fullscreen/out_width/out_height props, but HWC still presents the
+     * 720x1280 surface at 1:1.  Width/height are definitely visible to HWC
+     * because they already reduce the rendered UI to the top-left 720x1280
+     * area.  Use that known-good signal to force the 1080x1920 output target.
+     */
+    const bool hammerhead_lowres_720 =
+            width_overridden
+            && height_overridden
+            && width == 720
+            && height == 1280;
+
+    if (hammerhead_lowres_720) {
+        target_width = 1080;
+        target_height = 1920;
+    }
+
     const bool explicit_target =
             target_width > width
             && target_height > height
@@ -182,10 +202,10 @@ void choose_width_height(struct display* display, int32_t hint_width, int32_t hi
             && height > 0;
 
     display->scaleToFullscreen =
-            (fullscreen_requested || explicit_target)
-            && width_overridden
+            width_overridden
             && height_overridden
-            && explicit_target;
+            && explicit_target
+            && (fullscreen_requested || hammerhead_lowres_720);
 
     display->outputScaleX = 1.0;
     display->outputScaleY = 1.0;
@@ -219,7 +239,7 @@ void choose_width_height(struct display* display, int32_t hint_width, int32_t hi
                  display->outputScaleX, display->outputScaleY);
         property_set("waydroid.lr.scale", diag);
 
-        ALOGE("Waydroid lowres fullscreen: render=%dx%d window=%dx%d req=%dx%d full=%dx%d scale=%fx%f",
+        ALOGE("Waydroid lowres fullscreen v6 hammerhead: render=%dx%d window=%dx%d req=%dx%d full=%dx%d scale=%fx%f",
               width, height, target_width, target_height,
               display->req_width, display->req_height,
               display->full_width, display->full_height,
