@@ -40,6 +40,7 @@ cc_library_shared {
     ],
     static_libs: [
         "libwayland_client",
+        "libwayland_egl_static",
         "libffi",
         "libwayland_extension_client_protocols",
         "libxkbcommon",
@@ -53,6 +54,7 @@ cc_library_shared {
         "WaydroidClipboard.cpp",
         "WaydroidWindow.cpp",
         "egl-tools.cpp",
+        "egl-window-proof.cpp",
         "modes/waydroid_mode.cpp",
         "modes/closed.cpp",
         "modes/full-ui.cpp",

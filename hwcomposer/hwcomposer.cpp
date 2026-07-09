@@ -50,6 +50,7 @@
 #include "WaydroidWindow.h"
 #include "gralloc_handler.h"
 #include "egl-tools.h"
+#include "egl-window-proof.h"
 #include "extension.h"
 
 #include "modes/closed.h"
@@ -477,6 +478,13 @@ static int hwc_set(struct hwc_composer_device_1* dev,size_t numDisplays,
         wl_surface_commit(window->surface);
     }
     wl_display_flush(pdev->display->display);
+
+    /*
+     * Hammerhead/Sailfish Proof A: create a separate fullscreen Wayland EGL
+     * surface and clear it to a solid color. This runs once, only when enabled
+     * by persist.waydroid.egl_window_proof=true.
+     */
+    waydroid_run_egl_window_proof_if_requested(pdev->display);
 
     sw_sync_timeline_inc(pdev->timeline_fd, 1);
     contents->retireFenceFd = sw_sync_fence_create(pdev->timeline_fd, "hwc_contents_release", ++pdev->next_sync_point);
