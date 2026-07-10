@@ -333,9 +333,28 @@ static void apply_surface_damage(hwc_layer_1 *hwc_layer, surface_context &surfac
     });
 }
 
+static bool use_lipstick_wrapper_scale(struct display *display)
+{
+    static bool logged_enabled = false;
+
+    bool enabled = display
+        && display->scaleToFullscreen
+        && property_get_bool("persist.waydroid.lipstick_scale", false);
+
+    if (enabled && !logged_enabled) {
+        ALOGE("Waydroid Lipstick layer scale: using outputScale=1.0 for HWC layer geometry");
+        logged_enabled = true;
+    }
+
+    return enabled;
+}
+
 static int apply_hwc_layer_to_surface_context(waydroid_hwc_composer_device_1 *pdev, hwc_layer_1 *hwc_layer, size_t hwc_layer_index, surface_context &surface_context, buffer *buf = nullptr) {
     constexpr int acquireWarningMS = 100;
     int res = -1;
+    bool lipstick_wrapper_scale = false;
+    double output_scale_x = 1.0;
+    double output_scale_y = 1.0;
 
     if (!buf) {
         buf = get_wl_buffer(pdev, hwc_layer, hwc_layer_index);
@@ -351,11 +370,15 @@ static int apply_hwc_layer_to_surface_context(waydroid_hwc_composer_device_1 *pd
     surface_context.attach_buffer(*buf);
     apply_surface_damage(hwc_layer, surface_context);
     surface_context.set_buffer_transform(hwc_transform_to_buffer_transform(hwc_layer->transform));
+    lipstick_wrapper_scale = use_lipstick_wrapper_scale(pdev->display);
+    output_scale_x = lipstick_wrapper_scale ? 1.0 : pdev->display->outputScaleX;
+    output_scale_y = lipstick_wrapper_scale ? 1.0 : pdev->display->outputScaleY;
+
     // Scaling can only be supported correctly with wp_viewport
     if (surface_context.viewport) {
         surface_context.set_crop(rect_apply_transform(hwc_layer->sourceCropf, hwc_layer->transform));
         surface_context.set_display_frame(hwc_layer->displayFrame, pdev->display->scale,
-                                      pdev->display->outputScaleX, pdev->display->outputScaleY);
+                                      output_scale_x, output_scale_y);
     } else {
         surface_context.set_buffer_scale(pdev->display->scale);
     }
@@ -396,17 +419,23 @@ int apply_hwc_layer_to_window(waydroid_hwc_composer_device_1 *pdev, hwc_layer_1 
         return -1;
     }
 
-    window_layer.set_position(
-        floor((hwc_layer->displayFrame.left / pdev->display->scale) * pdev->display->outputScaleX),
-        floor((hwc_layer->displayFrame.top / pdev->display->scale) * pdev->display->outputScaleY)
-    );
+    const bool lipstick_wrapper_scale = use_lipstick_wrapper_scale(pdev->display);
+    const double output_scale_x = lipstick_wrapper_scale ? 1.0 : pdev->display->outputScaleX;
+    const double output_scale_y = lipstick_wrapper_scale ? 1.0 : pdev->display->outputScaleY;
+
+    const int layer_x = floor((hwc_layer->displayFrame.left / pdev->display->scale) * output_scale_x);
+    const int layer_y = floor((hwc_layer->displayFrame.top / pdev->display->scale) * output_scale_y);
+    const int layer_w = ceil(((hwc_layer->displayFrame.right - hwc_layer->displayFrame.left) / pdev->display->scale) * output_scale_x);
+    const int layer_h = ceil(((hwc_layer->displayFrame.bottom - hwc_layer->displayFrame.top) / pdev->display->scale) * output_scale_y);
+
+    window_layer.set_position(layer_x, layer_y);
 
     if (window->input_region) {
         wl_region_add(window->input_region,
-                      -WINDOW_DECORATION_OUTSET + floor((hwc_layer->displayFrame.left / pdev->display->scale) * pdev->display->outputScaleX),
-                      -WINDOW_DECORATION_OUTSET + floor((hwc_layer->displayFrame.top / pdev->display->scale) * pdev->display->outputScaleY),
-                      2*WINDOW_DECORATION_OUTSET + ceil(((hwc_layer->displayFrame.right - hwc_layer->displayFrame.left) / pdev->display->scale) * pdev->display->outputScaleX),
-                      2*WINDOW_DECORATION_OUTSET + ceil(((hwc_layer->displayFrame.bottom - hwc_layer->displayFrame.top) / pdev->display->scale) * pdev->display->outputScaleY));
+                      -WINDOW_DECORATION_OUTSET + layer_x,
+                      -WINDOW_DECORATION_OUTSET + layer_y,
+                      2*WINDOW_DECORATION_OUTSET + layer_w,
+                      2*WINDOW_DECORATION_OUTSET + layer_h);
     }
 
     pdev->display->layers[window_layer.surface] = {
