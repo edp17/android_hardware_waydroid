@@ -1287,6 +1287,47 @@ flush_touch_id(struct display *display, int id)
 }
 
 static void
+log_waydroid_touch_coords(struct display *display, const char *event_name,
+                          int32_t id, int touch_slot, struct wl_surface *surface,
+                          int raw_x, int raw_y, int layer_x, int layer_y,
+                          int final_x, int final_y)
+{
+    static int logged_events = 0;
+
+    if (!property_get_bool("persist.waydroid.input_log", false))
+        return;
+
+    if (logged_events >= 160)
+        return;
+
+    logged_events++;
+
+    ALOGI("WaydroidInputCoords: event=%s id=%d slot=%d surface=%p "
+          "raw=%d,%d layer=%d,%d final=%d,%d "
+          "display=%dx%d output=%dx%d outputScale=%.3fx%.3f "
+          "scaleToFullscreen=%d scale=%.3f count=%d",
+          event_name,
+          id,
+          touch_slot,
+          surface,
+          raw_x,
+          raw_y,
+          layer_x,
+          layer_y,
+          final_x,
+          final_y,
+          display ? display->width : -1,
+          display ? display->height : -1,
+          display ? display->outputWidth : -1,
+          display ? display->outputHeight : -1,
+          display ? display->outputScaleX : 0.0,
+          display ? display->outputScaleY : 0.0,
+          display ? display->scaleToFullscreen : 0,
+          display ? display->scale : 0.0,
+          logged_events);
+}
+
+static void
 touch_handle_down(void *data, struct wl_touch *,
           uint32_t, uint32_t, struct wl_surface *surface,
           int32_t id, wl_fixed_t x_w, wl_fixed_t y_w)
@@ -1314,12 +1355,19 @@ touch_handle_down(void *data, struct wl_touch *,
     }
     x = wl_fixed_to_int(x_w);
     y = wl_fixed_to_int(y_w);
+    int raw_x = x;
+    int raw_y = y;
     if (display->scale != 1) {
         x = int(x * display->scale);
         y = int(y * display->scale);
     }
-    x += display->layers[surface].x;
-    y += display->layers[surface].y;
+    int layer_x = display->layers[surface].x;
+    int layer_y = display->layers[surface].y;
+    x += layer_x;
+    y += layer_y;
+
+    log_waydroid_touch_coords(display, "down", id, touch_id, surface,
+                              raw_x, raw_y, layer_x, layer_y, x, y);
 
     ADD_EVENT(EV_ABS, ABS_MT_SLOT, touch_id);
     ADD_EVENT(EV_ABS, ABS_MT_TRACKING_ID, touch_id);
@@ -1386,12 +1434,20 @@ touch_handle_motion(void *data, struct wl_touch *,
         }
         x = wl_fixed_to_int(x_w);
         y = wl_fixed_to_int(y_w);
+        int raw_x = x;
+        int raw_y = y;
         if (display->scale != 1) {
             x = int(x * display->scale);
             y = int(y * display->scale);
         }
-        x += display->layers[display->touch_surfaces[id]].x;
-        y += display->layers[display->touch_surfaces[id]].y;
+        struct wl_surface *touch_surface = display->touch_surfaces[id];
+        int layer_x = display->layers[touch_surface].x;
+        int layer_y = display->layers[touch_surface].y;
+        x += layer_x;
+        y += layer_y;
+
+        log_waydroid_touch_coords(display, "motion", id, touch_id, touch_surface,
+                                  raw_x, raw_y, layer_x, layer_y, x, y);
 
         ADD_EVENT(EV_ABS, ABS_MT_SLOT, touch_id);
         ADD_EVENT(EV_ABS, ABS_MT_TRACKING_ID, touch_id);
