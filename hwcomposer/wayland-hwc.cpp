@@ -1287,6 +1287,19 @@ flush_touch_id(struct display *display, int id)
 }
 
 static void
+apply_lipstick_input_inverse_scale(struct display *display, int *x, int *y)
+{
+    if (!display || !display->scaleToFullscreen)
+        return;
+
+    if (display->outputScaleX > 1.0)
+        *x = static_cast<int>(*x / display->outputScaleX);
+
+    if (display->outputScaleY > 1.0)
+        *y = static_cast<int>(*y / display->outputScaleY);
+}
+
+static void
 touch_handle_down(void *data, struct wl_touch *,
           uint32_t, uint32_t, struct wl_surface *surface,
           int32_t id, wl_fixed_t x_w, wl_fixed_t y_w)
@@ -1320,6 +1333,7 @@ touch_handle_down(void *data, struct wl_touch *,
     }
     x += display->layers[surface].x;
     y += display->layers[surface].y;
+    apply_lipstick_input_inverse_scale(display, &x, &y);
 
     ADD_EVENT(EV_ABS, ABS_MT_SLOT, touch_id);
     ADD_EVENT(EV_ABS, ABS_MT_TRACKING_ID, touch_id);
@@ -1392,6 +1406,7 @@ touch_handle_motion(void *data, struct wl_touch *,
         }
         x += display->layers[display->touch_surfaces[id]].x;
         y += display->layers[display->touch_surfaces[id]].y;
+        apply_lipstick_input_inverse_scale(display, &x, &y);
 
         ADD_EVENT(EV_ABS, ABS_MT_SLOT, touch_id);
         ADD_EVENT(EV_ABS, ABS_MT_TRACKING_ID, touch_id);
