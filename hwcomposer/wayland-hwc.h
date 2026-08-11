@@ -57,7 +57,10 @@
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 
+#include <chrono>
+#include <condition_variable>
 #include <functional>
+#include <mutex>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -131,6 +134,26 @@ struct buffer {
     void *shm_data;
     int size;
 
+    std::mutex release_mutex;
+    std::condition_variable release_condition;
+    bool compositor_released {true};
+
+    /*
+     * Each exported DMA-BUF gets its own sw_sync timeline.  SurfaceFlinger
+     * receives a release fence for every Wayland commit, and wl_buffer.release
+     * advances only this buffer's timeline.  A separate timeline per buffer
+     * avoids one buffer's out-of-order release signalling fences belonging to
+     * another buffer.
+     */
+    int android_release_timeline_fd {-1};
+    uint32_t android_release_timeline_value {0};
+    uint32_t android_release_pending_value {0};
+
+    bool wait_for_compositor_release(std::chrono::milliseconds timeout);
+    int create_android_release_fence();
+    void mark_attached();
+    void mark_released();
+
     ~buffer();
 };
 
@@ -160,6 +183,7 @@ struct surface_context {
 
     void attach_buffer(buffer& buf);
     void damage_surface(int32_t x, int32_t y, int32_t width, int32_t height);
+    void damage_buffer(int32_t x, int32_t y, int32_t width, int32_t height);
     void set_buffer_transform(BufferTransform transform);
     void set_buffer_scale(double scale);
     // Requires the transformed rectangle

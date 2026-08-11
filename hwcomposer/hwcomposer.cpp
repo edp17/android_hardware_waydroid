@@ -30,7 +30,6 @@
 #include <string>
 #include <sstream>
 #include <functional>
-
 #include <log/log.h>
 #include <cutils/properties.h>
 #include <hardware/hwcomposer.h>
@@ -86,6 +85,7 @@ namespace {
         return src;
     }
 
+
     buffer *find_cached_buffer(waydroid_hwc_composer_device_1 *pdev, const buffer_metadata &metadata, buffer_handle_t handle) {
         auto it = pdev->display->buffer_map.find(handle);
         if (it != pdev->display->buffer_map.end()) {
@@ -121,8 +121,59 @@ namespace {
             buf = emplace_result.first->second.get();
         }
 
-        if (buf->isShm)
+        if (buf->isShm) {
+            /*
+             * A wl_shm buffer remains owned by the compositor until the
+             * compositor sends wl_buffer.release.  The old release listener
+             * ignored that event and update_shm_buffer() overwrote the same
+             * mapping while Lipstick could still be scanning it out.
+             *
+             * Wait for the previous presentation to release this mirror
+             * before writing the next Android frame into it.  Refuse the copy
+             * after a bounded wait rather than corrupting the displayed frame.
+             */
+            constexpr auto releaseWait =
+                std::chrono::milliseconds(250);
+            const bool compositor_released =
+                buf->wait_for_compositor_release(releaseWait);
+
+            if (!compositor_released) {
+                ALOGE("Refusing busy SHM overwrite after compositor-release timeout");
+                return nullptr;
+            }
+
+            /*
+             * The SHM mirror is populated by reading the Android buffer on
+             * the CPU.  The producer owns that buffer until acquireFenceFd
+             * signals, so waiting only later, immediately before the Wayland
+             * commit, is too late: it allows us to copy a partially rendered
+             * frame.
+             *
+             * Keep the existing later wait for now so non-SHM paths retain
+             * their current ordering and return semantics.  A signalled sync
+             * fence may be waited more than once.
+             */
+            constexpr int preCopyFenceWaitMS = 100;
+            int wait_result = 0;
+            int wait_errno = 0;
+
+            if (layer->acquireFenceFd != -1) {
+                wait_result = sync_wait(
+                    layer->acquireFenceFd,
+                    preCopyFenceWaitMS);
+                if (wait_result < 0) {
+                    wait_errno = errno;
+                }
+            }
+
+            if (wait_result < 0) {
+                ALOGE("Refusing incomplete SHM copy: fence=%d rc=%d errno=%d",
+                      layer->acquireFenceFd, wait_result, wait_errno);
+                return nullptr;
+            }
+
             gralloc_handler.update_shm_buffer(pdev->display, buf);
+        }
         return buf;
     }
 
@@ -317,14 +368,31 @@ bool is_blacklisted(struct waydroid_hwc_composer_device_1* pdev, const std::stri
 
 static void apply_surface_damage(hwc_layer_1 *hwc_layer, surface_context &surface_context) {
     auto &surface_damage = hwc_layer->surfaceDamage;
+    const uint32_t surface_version = wl_surface_get_version(surface_context.surface);
+    const bool supports_buffer_damage =
+        surface_version >= WL_SURFACE_DAMAGE_BUFFER_SINCE_VERSION;
 
-    if (surface_damage.numRects == 0
-        || wl_surface_get_version(surface_context.surface) < WL_SURFACE_DAMAGE_BUFFER_SINCE_VERSION) {
+    if (surface_damage.numRects == 0) {
+        if (supports_buffer_damage) {
+            surface_context.damage_buffer(0, 0, INT32_MAX, INT32_MAX);
+        } else {
+            surface_context.damage_surface(0, 0, INT32_MAX, INT32_MAX);
+        }
+        return;
+    }
+
+    if (!supports_buffer_damage) {
+        // HWC surfaceDamage rectangles are expressed in source-buffer
+        // coordinates. wl_surface_damage() uses surface-local coordinates,
+        // which differ after buffer transforms. On old wl_surface versions,
+        // invalidate the complete surface rather than applying wrong-space
+        // partial rectangles.
         surface_context.damage_surface(0, 0, INT32_MAX, INT32_MAX);
+        return;
     }
 
     std::for_each(surface_damage.rects, surface_damage.rects + surface_damage.numRects, [&](const auto &rect){
-        surface_context.damage_surface(
+        surface_context.damage_buffer(
             rect.left,
             rect.top,
             rect.right - rect.left,
@@ -336,7 +404,6 @@ static void apply_surface_damage(hwc_layer_1 *hwc_layer, surface_context &surfac
 static int apply_hwc_layer_to_surface_context(waydroid_hwc_composer_device_1 *pdev, hwc_layer_1 *hwc_layer, size_t hwc_layer_index, surface_context &surface_context, buffer *buf = nullptr) {
     constexpr int acquireWarningMS = 100;
     int res = -1;
-
     if (!buf) {
         buf = get_wl_buffer(pdev, hwc_layer, hwc_layer_index);
         if (!buf) {
@@ -345,8 +412,24 @@ static int apply_hwc_layer_to_surface_context(waydroid_hwc_composer_device_1 *pd
         }
     }
 
-    // TODO: Implement per-hwc_layer explicit synchronization
+    /*
+     * DMA-BUFs are passed directly to the Wayland compositor.  Android must
+     * not reuse the producer buffer until Lipstick sends wl_buffer.release.
+     * Return a per-buffer sw_sync fence which mark_released() signals from
+     * that callback.  SHM mirrors remain immediately reusable by Android
+     * because their contents have already been copied.
+     */
     hwc_layer->releaseFenceFd = -1;
+    if (!buf->isShm) {
+        hwc_layer->releaseFenceFd =
+            buf->create_android_release_fence();
+        if (hwc_layer->releaseFenceFd < 0) {
+            ALOGE("Failed to prepare DMA-BUF release fence for layer %zu",
+                  hwc_layer_index);
+            res = -1;
+            goto out;
+        }
+    }
 
     surface_context.attach_buffer(*buf);
     apply_surface_damage(hwc_layer, surface_context);
@@ -371,6 +454,9 @@ static int apply_hwc_layer_to_surface_context(waydroid_hwc_composer_device_1 *pd
         res = 0;
     }
 
+    if (buf->isShm) {
+        buf->mark_attached();
+    }
     wl_surface_commit(surface_context.surface);
 
 out:

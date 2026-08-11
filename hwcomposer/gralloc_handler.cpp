@@ -25,6 +25,7 @@
 
 #include "gralloc_handler.h"
 
+#include <cerrno>
 #include <cstdint>
 #include <memory>
 
@@ -64,7 +65,12 @@ namespace {
     }
 
     const wl_buffer_listener buffer_listener {
-        [](void *, struct wl_buffer *) {}
+        [](void *data, struct wl_buffer *) {
+            auto *buf = static_cast<buffer *>(data);
+            if (buf) {
+                buf->mark_released();
+            }
+        }
     };
 }
 std::unique_ptr<buffer> create_shm_wl_buffer(display *display, const buffer_metadata& metadata, buffer_handle_t handle) {
@@ -83,17 +89,58 @@ std::unique_ptr<buffer> create_shm_wl_buffer(display *display, const buffer_meta
     auto shm_format = ConvertHalFormatToShm(metadata.format);
     assert(shm_format >= 0);
 
-    int fd = syscall(SYS_memfd_create, "buffer", MFD_ALLOW_SEALING);
-    ftruncate(fd, size);
-    buf->shm_data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if (buf->shm_data == MAP_FAILED) {
-        ALOGE("mmap failed");
+    int fd = syscall(SYS_memfd_create, "buffer", 0);
+    if (fd < 0) {
+        ALOGE("memfd_create failed errno=%d", errno);
+        return nullptr;
+    }
+
+    if (ftruncate(fd, size) != 0) {
+        ALOGE("ftruncate failed fd=%d size=%d errno=%d", fd, size, errno);
         close(fd);
         return nullptr;
     }
+
+    buf->shm_data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (buf->shm_data == MAP_FAILED) {
+        ALOGE("mmap failed fd=%d size=%d errno=%d", fd, size, errno);
+        buf->shm_data = nullptr;
+        close(fd);
+        return nullptr;
+    }
+
     struct wl_shm_pool *pool = wl_shm_create_pool(display->shm, fd, size);
-    buf->wl_buffer = wl_shm_pool_create_buffer(pool, 0, metadata.width, metadata.height, shm_stride, shm_format);
-    wl_buffer_add_listener(buf->wl_buffer, &buffer_listener, nullptr);
+    if (!pool) {
+        ALOGE("wl_shm_create_pool failed fd=%d size=%d", fd, size);
+        close(fd);
+        return nullptr;
+    }
+
+    buf->wl_buffer = wl_shm_pool_create_buffer(
+        pool, 0,
+        metadata.width, metadata.height,
+        shm_stride, shm_format);
+
+    if (!buf->wl_buffer) {
+        ALOGE("wl_shm_pool_create_buffer failed "
+              "width=%u height=%u stride=%d format=%u",
+              metadata.width, metadata.height,
+              shm_stride, shm_format);
+        wl_shm_pool_destroy(pool);
+        close(fd);
+        return nullptr;
+    }
+
+    if (wl_buffer_add_listener(
+            buf->wl_buffer,
+            &buffer_listener,
+            buf.get()) != 0) {
+        ALOGE("wl_buffer_add_listener failed");
+        wl_shm_pool_destroy(pool);
+        close(fd);
+        return nullptr;
+    }
+
     wl_shm_pool_destroy(pool);
     close(fd);
 
@@ -183,7 +230,7 @@ std::unique_ptr<buffer> create_dmabuf_wl_buffer(display *display, const buffer_m
     zwp_linux_buffer_params_v1_add_listener(params, &params_listener, nullptr);
 
     buf->wl_buffer = zwp_linux_buffer_params_v1_create_immed(params, buf->metadata.width, buf->metadata.height, drm_format, 0);
-    wl_buffer_add_listener(buf->wl_buffer, &buffer_listener, nullptr);
+    wl_buffer_add_listener(buf->wl_buffer, &buffer_listener, buf.get());
 
     return buf;
 }
@@ -209,7 +256,7 @@ std::unique_ptr<buffer> create_android_wl_buffer(display *display, const buffer_
     buf->wl_buffer = android_wlegl_create_buffer(display->android_wlegl, buf->metadata.width, buf->metadata.height, buf->metadata.pixel_stride, metadata.format, GRALLOC_USAGE_HW_RENDER, wlegl_handle);
     android_wlegl_handle_destroy(wlegl_handle);
 
-    wl_buffer_add_listener(buf->wl_buffer, &buffer_listener, nullptr);
+    wl_buffer_add_listener(buf->wl_buffer, &buffer_listener, buf.get());
 
     return buf;
 }

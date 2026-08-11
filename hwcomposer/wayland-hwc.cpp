@@ -84,10 +84,111 @@ using ::android::hardware::hidl_string;
 
 struct buffer;
 
+bool buffer::wait_for_compositor_release(std::chrono::milliseconds timeout) {
+    std::unique_lock<std::mutex> lock(release_mutex);
+    return release_condition.wait_for(lock, timeout, [this]() {
+        return compositor_released;
+    });
+}
+
+int buffer::create_android_release_fence() {
+    std::lock_guard<std::mutex> lock(release_mutex);
+
+    if (isShm) {
+        ALOGE("Refusing Android release fence for SHM buffer=%p", this);
+        return -1;
+    }
+
+    if (!compositor_released || android_release_pending_value != 0) {
+        ALOGE("Refusing busy DMA-BUF attach: buffer=%p released=%d pending=%u",
+              this, compositor_released ? 1 : 0,
+              android_release_pending_value);
+        return -1;
+    }
+
+    if (android_release_timeline_fd < 0) {
+        android_release_timeline_fd = sw_sync_timeline_create();
+        if (android_release_timeline_fd < 0) {
+            ALOGE("Failed to create DMA-BUF release timeline: buffer=%p errno=%d",
+                  this, errno);
+            return -1;
+        }
+    }
+
+    const uint32_t fence_value = android_release_timeline_value + 1;
+    const int fence_fd = sw_sync_fence_create(
+        android_release_timeline_fd,
+        "waydroid_wl_buffer_release",
+        fence_value);
+
+    if (fence_fd < 0) {
+        ALOGE("Failed to create DMA-BUF release fence: buffer=%p value=%u errno=%d",
+              this, fence_value, errno);
+        return -1;
+    }
+
+    android_release_pending_value = fence_value;
+    compositor_released = false;
+
+    return fence_fd;
+}
+
+void buffer::mark_attached() {
+    std::lock_guard<std::mutex> lock(release_mutex);
+    compositor_released = false;
+}
+
+void buffer::mark_released() {
+    uint32_t signalled_value = 0;
+    uint32_t signal_increment = 0;
+    int signal_rc = 0;
+
+    {
+        std::lock_guard<std::mutex> lock(release_mutex);
+        if (!isShm && android_release_pending_value != 0) {
+            signalled_value = android_release_pending_value;
+
+            if (android_release_timeline_fd < 0
+                || signalled_value <= android_release_timeline_value) {
+                signal_rc = -EINVAL;
+            } else {
+                signal_increment =
+                    signalled_value - android_release_timeline_value;
+                signal_rc = sw_sync_timeline_inc(
+                    android_release_timeline_fd,
+                    signal_increment);
+
+                if (signal_rc == 0) {
+                    android_release_timeline_value = signalled_value;
+                    android_release_pending_value = 0;
+                }
+            }
+        }
+
+        compositor_released = true;
+    }
+
+    if (!isShm && signalled_value != 0 && signal_rc != 0) {
+        ALOGE("DMA-BUF release fence signal failed: buffer=%p "
+              "value=%u increment=%u rc=%d errno=%d",
+              this, signalled_value, signal_increment, signal_rc, errno);
+    }
+
+    release_condition.notify_all();
+}
+
 buffer::~buffer() {
-    wl_buffer_destroy(wl_buffer);
-    if (isShm)
+    if (wl_buffer) {
+        wl_buffer_destroy(wl_buffer);
+    }
+
+    if (android_release_timeline_fd >= 0) {
+        close(android_release_timeline_fd);
+    }
+
+    if (isShm && shm_data && shm_data != MAP_FAILED && size > 0) {
         munmap(shm_data, size);
+    }
 }
 
 // Call me from egl_worker_thread only!
@@ -412,6 +513,10 @@ void surface_context::attach_buffer(buffer& buf) {
 
 void surface_context::damage_surface(int32_t x, int32_t y, int32_t width, int32_t height) {
     wl_surface_damage(surface, x, y, width, height);
+}
+
+void surface_context::damage_buffer(int32_t x, int32_t y, int32_t width, int32_t height) {
+    wl_surface_damage_buffer(surface, x, y, width, height);
 }
 
 void surface_context::set_buffer_transform(BufferTransform transform) {
