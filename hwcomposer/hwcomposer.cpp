@@ -246,7 +246,13 @@ static struct buffer *get_wl_buffer(struct waydroid_hwc_composer_device_1 *pdev,
         }
     } else {
         if (pdev->display->gtype == GRALLOC_ANDROID) {
-            ret = create_android_wl_buffer(pdev->display, buf, width, height, format, pixel_stride, layer->handle);
+            if (property_get_bool("persist.waydroid.force_shm_android", false)) {
+                ret = create_shm_wl_buffer(pdev->display, buf, width, height, format, pixel_stride, layer->handle);
+                if (!ret)
+                    update_shm_buffer(pdev->display, buf);
+            } else {
+                ret = create_android_wl_buffer(pdev->display, buf, width, height, format, pixel_stride, layer->handle);
+            }
         } else {
             ret = create_shm_wl_buffer(pdev->display, buf, width, height, format, pixel_stride, layer->handle);
             update_shm_buffer(pdev->display, buf);

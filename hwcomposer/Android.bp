@@ -47,6 +47,7 @@ cc_library_shared {
     srcs: [
         "extension.cpp",
         "hwcomposer.cpp",
+        "sw_sync_compat.cpp",
         "wayland-hwc.cpp",
         "WaydroidClipboard.cpp",
         "WaydroidWindow.cpp",
