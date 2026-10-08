@@ -2201,8 +2201,18 @@ registry_handle_global(void *data, struct wl_registry *registry,
                     &presentation_listener, d);
         }
     } else if (strcmp(interface, "wp_viewporter") == 0) {
-        d->viewporter = (struct wp_viewporter*)wl_registry_bind(registry, id,
-                &wp_viewporter_interface, 1);
+        /*
+         * Hammerhead/Sailfish renders Waydroid at 720x1280 and uses the
+         * Lipstick wrapper to scale that surface to the 1080x1920 display.
+         *
+         * Sailfish OS 5.1 advertises wp_viewporter. Binding it here makes HWC
+         * apply outputScaleX/outputScaleY to the Wayland layer destination in
+         * addition to the existing Lipstick 1.5 wrapper scale. The UI is then
+         * scaled twice and clipped.
+         *
+         * Keep wp_viewporter unbound on the Hammerhead branch, preserving the
+         * validated Sailfish OS 5.0 single-scale presentation path.
+         */
     } else if ((d->gtype == GrallocType::GRALLOC_ANDROID) &&
                (strcmp(interface, "android_wlegl") == 0)) {
         d->android_wlegl = (struct android_wlegl*)wl_registry_bind(registry, id,
